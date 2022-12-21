@@ -1,11 +1,8 @@
 import akka.actor.Actor
-import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.scaladsl.LoggerOps
-import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
+import akka.actor.{ActorRef, ActorSystem,Props}
+import scala.collection.mutable.ListBuffer
 
-
-
-case class Sum_List(elf_id:Int,cal_list:List[Int],forward_to:ActorRef[Eval_Actor])
+case class Sum_List(elf_id:Int,cal_list:List[Int],forward_to:ActorRef)
 case class Summation(elf_id:Int,total:Int)
 
 class Summation_Actor extends Actor{
@@ -16,7 +13,7 @@ class Summation_Actor extends Actor{
   //Forwards the summation as a total
   private def r_Sum_List(do_sum:Sum_List):Unit= {
     val my_sum = Summation(do_sum.elf_id, do_sum.cal_list.sum)
-    my_sum ! do_sum.forward_to
+    do_sum.forward_to ! my_sum
   }
 }
 
@@ -37,21 +34,46 @@ class Eval_Actor extends Actor {
   }
 
   private def r_Done(): Unit = {
-    println("LARGEST WAS: %i from %i",largest.total,largest.elf_id)
+    println("LARGEST WAS: %d from %d".format(largest.total,largest.elf_id))
   }
 }
 
 
-object HelloWorldMain {
+object CalorieCounter{
   def main(args: Array[String]): Unit = {
 
-   //Parse the input
-
-
-
-
     // Start the system
-    val system: ActorSystem[HelloWorldMain.SayHello] =
-      ActorSystem(HelloWorldMain(), "hello")
+    val system = ActorSystem("Elf_Calorie_Counter")
+
+    val eval_Actor = system.actorOf(Props[Eval_Actor],"Eval_Actor")
+
+    //Parse the input
+    val fileName = "input.txt"
+    var elf_id = 0
+    val bufferedSource = scala.io.Source.fromFile(fileName)
+
+    //Create a list to hold totals
+    val cal_list: ListBuffer[Int] = new ListBuffer[Int]()
+
+    //Foreach line
+    for (line <- bufferedSource.getLines()) {
+      if(line.isEmpty){
+
+        //Create and send the full list to the actors
+        val elf_counter =system.actorOf(Props[Summation_Actor](),"Elf_sum" + elf_id)
+        elf_counter ! Sum_List(elf_id,cal_list.toList,eval_Actor)
+
+        //Increment and prepare for the next
+        elf_id = elf_id + 1
+        cal_list.clear()
+        //Create/send to Sum_Actor
+      }
+      else {
+        cal_list += line.toInt //make and add it to the list
+      }
+    }
+    bufferedSource.close()
+    eval_Actor ! "done"
   }
 }
+
