@@ -14,14 +14,17 @@ class Summation_Actor extends Actor{
   //Forwards the summation as a total
   private def r_Sum_List(do_sum:Sum_List):Unit= {
     val my_sum = Summation(do_sum.elf_id, do_sum.cal_list.sum)
-    //println("%s sending sum %d".format(self.path.name,do_sum.cal_list.sum))
+//    println("%s sending sum %d to %s"
+//      .format(self.path.name,
+//        do_sum.cal_list.sum,
+//        do_sum.forward_to.path.name
+//      ))
     do_sum.forward_to ! my_sum
-    self ! PoisonPill
   }
 }
 
 class Eval_Actor extends Actor {
-  private val sums: ListBuffer[Summation] = null;
+  private var sums: ListBuffer[Summation] = null;
 
   override def receive: Receive = {
     case s: Summation => r_Summation(s)
@@ -31,23 +34,28 @@ class Eval_Actor extends Actor {
   //Set the new largest if it was received
   private def r_Summation(summation: Summation): Unit = {
 
-    println("Received %s 's summation".format(summation.elf_id));
+    //println("Received %s 's summation of %d".format(summation.elf_id,summation.total));
     //If null, insert, if incoming -gt, prepend, if -lte, append
-    if (sums == null)
-      this.sums += summation
-    else if (this.sums.last.total < summation.total)
+    if (sums == null) {
+      this.sums = ListBuffer[Summation](summation);
+    } else if (this.sums.head.total < summation.total) {
       this.sums.prepend(summation)
-     else
+    } else {
       this.sums.append(summation)
+    }
   }
 
   private def r_Done(d:Done): Unit = {
     println("Got Done!")
-    for (sum <- 0 to d.top_n)
+    for (sum <- 0 until d.top_n)
       println("%d th is elf %d with %d".format(sum+1,sums(sum).elf_id,sums(sum).total))
+
+    val top_n:ListBuffer[Int] = this.sums.slice(0,d.top_n).map(s => s.total);
+    println("Their Sum is %d".format(top_n.sum))
+
+    self ! PoisonPill
   }
 
-  self ! PoisonPill
 }
 
 
