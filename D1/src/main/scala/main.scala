@@ -1,10 +1,11 @@
 import akka.actor.Actor
-import akka.actor.{ActorRef, ActorSystem,Props}
+import akka.actor.{ActorRef, ActorSystem,Props,PoisonPill}
 import scala.collection.mutable.ListBuffer
 
 case class Sum_List(elf_id:Int,cal_list:List[Int],forward_to:ActorRef)
 case class Summation(elf_id:Int,total:Int)
 
+case class Done(top_n:Int);
 class Summation_Actor extends Actor{
   override def receive: Receive = {
     case l:Sum_List => r_Sum_List(l)
@@ -13,29 +14,40 @@ class Summation_Actor extends Actor{
   //Forwards the summation as a total
   private def r_Sum_List(do_sum:Sum_List):Unit= {
     val my_sum = Summation(do_sum.elf_id, do_sum.cal_list.sum)
+    //println("%s sending sum %d".format(self.path.name,do_sum.cal_list.sum))
     do_sum.forward_to ! my_sum
+    self ! PoisonPill
   }
 }
 
 class Eval_Actor extends Actor {
-  private var largest: Summation = null;
+  private val sums: ListBuffer[Summation] = null;
 
   override def receive: Receive = {
     case s: Summation => r_Summation(s)
-    case "done" => r_Done();
+    case d:Done => r_Done(d);
   }
 
   //Set the new largest if it was received
   private def r_Summation(summation: Summation): Unit = {
-    if (largest == null)
-      this.largest = summation
-    else if (this.largest.total <= summation.total)
-      this.largest = summation;
+
+    println("Received %s 's summation".format(summation.elf_id));
+    //If null, insert, if incoming -gt, prepend, if -lte, append
+    if (sums == null)
+      this.sums += summation
+    else if (this.sums.last.total < summation.total)
+      this.sums.prepend(summation)
+     else
+      this.sums.append(summation)
   }
 
-  private def r_Done(): Unit = {
-    println("LARGEST WAS: %d from %d".format(largest.total,largest.elf_id))
+  private def r_Done(d:Done): Unit = {
+    println("Got Done!")
+    for (sum <- 0 to d.top_n)
+      println("%d th is elf %d with %d".format(sum+1,sums(sum).elf_id,sums(sum).total))
   }
+
+  self ! PoisonPill
 }
 
 
@@ -73,7 +85,8 @@ object CalorieCounter{
       }
     }
     bufferedSource.close()
-    eval_Actor ! "done"
+    println("Sending DONE");
+    eval_Actor ! Done(3)
   }
 }
 
