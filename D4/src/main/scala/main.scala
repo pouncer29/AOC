@@ -41,6 +41,10 @@ class Formatter(accumulator:ActorRef,id:Int) extends Actor{
       accumulator ! 1
      else if (lower_B <= lower_A && upper_B >= upper_A)
       accumulator ! 1
+    else if (lower_A <= upper_B && upper_A > upper_B)
+      accumulator ! 1
+    else if (lower_B <= upper_A && upper_B > upper_A)
+      accumulator ! 1
     else
       accumulator ! 0
   }
