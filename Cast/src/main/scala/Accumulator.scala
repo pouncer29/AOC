@@ -1,9 +1,9 @@
 import akka.actor.Actor
-import akka.actor.{ActorRef, ActorSystem, PoisonPill, Props}
+import akka.actor.{PoisonPill, Props}
 import scala.collection.mutable.ListBuffer
 
 object Accumulator {
-  def props(limit):Props = Props(new Accumulator(limit))
+  def props(limit:Int):Props = Props(new Accumulator(limit))
 }
 
 class Accumulator(limit:Int) extends Actor{
