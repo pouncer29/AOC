@@ -1,11 +1,11 @@
-import akka.actor.Actor
-import akka.actor.{ActorRef, ActorSystem, PoisonPill, Props}
+import akka.actor.{Actor, ActorRef, ActorSystem, PoisonPill, Props, actorRef2Scala}
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 case class Sack(comp_1:String,comp_2:String,sack_id:Int)
 case class Priority_Sack(comp_1:List[Int],comp_2:List[Int],sack_id:Int)
+
 object Compartmentalizer{
   def props(accumulator:ActorRef):Props = Props(new Compartmentalizer(accumulator));
 }
@@ -67,9 +67,10 @@ class Comparitor(accumulator:ActorRef) extends Actor{
   private def r_Sack(sack: Priority_Sack): Unit = {
     val similarity = sack.comp_1.filter(item => sack.comp_2.contains(item))
     //val as_chars = similarity.map(priority => priority.toChar)
-    println(s"Similarity of ${sack.sack_id} = ${similarity}")
+    //println(s"Similarity of ${sack.sack_id} = ${similarity}")
 
-    accumulator ! similarity.sum
+    //accumulator ! similarity.sum
+    accumulator ! sack
   }
 
   override def receive: Receive = {
@@ -90,34 +91,35 @@ class Accumulator(num_sacks:Int) extends Actor{
 
   private var compartment_1: ListBuffer[Int] = new ListBuffer[Int]()
   private var compartment_2: ListBuffer[Int] = new ListBuffer[Int]()
-  private val ids:ListBuffer[Int] = ListBuffer[Int]()
+  private val ids:Array[List[Int]] = new Array[List[Int]](num_sacks);
+  private var id_count:Int = 0
   private var total: ListBuffer[Int] = new ListBuffer[Int]()
 
   private def r_Sack(sack: Priority_Sack):Unit = {
+    ids(sack.sack_id) = sack.comp_1.concat(sack.comp_2)
+    id_count = id_count + 1
+    if(id_count == num_sacks){
+      var as_list = ids.toList
+      while(as_list.nonEmpty){
+        val group = as_list.take(3) match {
+          case List(a,b,c) => (a,b,c)
+        }
 
-    if(sack.comp_1.nonEmpty)
-      compartment_1 = compartment_1 ++ sack.comp_1
-
-    if(sack.comp_2.nonEmpty)
-      compartment_2 = compartment_2 ++ sack.comp_2
-
-    ids.append(sack.sack_id)
-
-    if( ids.length == num_sacks ) {
-      println(s"BEGINNING THE TALLY: ${compartment_2.length} and ${compartment_2.length}")
-
-      val similar = compartment_1.filter(item => compartment_2.contains(item))
-      println(s"sum ${similar.sum}")
-    } else {
-      println(s"Handled sack ${sack.sack_id}")
+        as_list = as_list.slice(3,as_list.length)
+        val similar = group._1.filter(item => group._2.contains(item) && group._3.contains(item))
+        println(s"Similar is: ${similar}")
+        self ! similar.sum
+      }
     }
+
   }
 
   def r_Sum(sub_total: Int): Unit = {
-    println(s"received: ${sub_total}")
+    //println(s"received: ${sub_total}")
     total.append(sub_total)
-    if(total.length == num_sacks)
+    if(total.length == (num_sacks/3)) {
       println(s"SUM IS: ${total.sum} of ${total}")
+    }
   }
 
   override def receive: Receive = {
@@ -133,6 +135,9 @@ class Accumulator(num_sacks:Int) extends Actor{
  * 4. sum priorities of duplicates per line
  * 5. sum those sums?
  */
+
+
+
 
 object main{
   def main(args: Array[String]): Unit = {
