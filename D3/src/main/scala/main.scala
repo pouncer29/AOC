@@ -167,8 +167,6 @@ object main{
       comparitor ! Sack(line,"",line_num)
       line_num = line_num + 1
     }
-
-
     bufferedSource.close()
   }
 }
