@@ -1,20 +1,20 @@
 import akka.actor.{Actor, ActorRef, ActorSystem, PoisonPill, Props, actorRef2Scala}
-
 import scala.collection.mutable.ListBuffer
-import scala.util.control.Exception
 
+case class Command(priority:Int,quantity:Int,source:Int,dest:Int)
 
 object Delegator{
-  def props(rows:ListBuffer[ListBuffer[Char]]) = Props(new Delegator((rows)))
+  def props(rows:ListBuffer[ListBuffer[Char]],commands:ListBuffer[Command]) =
+    Props(new Delegator(rows,commands))
 }
 
 object Crate_Stack{
   def props(stack:ListBuffer[Char]) = Props(new Crate_Stack(stack))
 }
 
-class Delegator(rows:ListBuffer[ListBuffer[Char]]) extends Actor{
-  var locks = new Array[Boolean](0)
-  var stacks= new Array[ActorRef](0)
+class Delegator(rows:ListBuffer[ListBuffer[Char]],commads:ListBuffer[Command]) extends Actor{
+  private var locks = new Array[Boolean](0)
+  private var stacks= new Array[ActorRef](0)
   override def receive: Receive = {
     case i:Int => print(s"received ${i}")
   }
@@ -22,8 +22,9 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]]) extends Actor{
     super.preStart()
     val num_stacks = rows.last.length
     locks = new Array[Boolean](num_stacks)
-    stacks = new Array[ActorRef](num_stacks)
+    stacks = new Array[ActorRef](num_stacks + 1)
     init_cols();
+
   }
   def init_cols() = {
     try {
@@ -40,15 +41,13 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]]) extends Actor{
         row_arr.toList
       }).transpose
 
-      //TODO: Send the transposed lists to col actors
+      //Send the transposed lists to col actors
       transposed.foreach(row => {
         val send_row = row.reverse
         val stack_id= send_row.head.toString.toInt
         val stack = context.actorOf(Crate_Stack.props(row.reverse))
         stacks(stack_id) = stack
       })
-
-
     } catch {
       case e: Exception => println(s"EXCEPTION: ${e}")
     }
@@ -71,6 +70,10 @@ class Crate_Stack(stack:ListBuffer[Char]) extends Actor{
 
 object d5{
 
+  def create_command(id:Int,command_string:String):Command = {
+    val  params = """\d""".r.findAllMatchIn(command_string).toList.map(i => i.toString().toInt)
+    Command(id,params(0),params(1),params(2))
+  }
   def main(args:Array[String]): Unit = {
 
     // Start the system
@@ -78,7 +81,7 @@ object d5{
 
 
     //Parse crates
-    val fileName = "./D5/d5.test.crates"
+    var fileName = "./D5/d5.test.crates"
     println("READING CRATES")
 
     //reset the source....
@@ -93,13 +96,28 @@ object d5{
         crates.append(line.charAt(i))
       }
       rows.append(crates)
-      println(s"appended ${line_num} --> ${crates.toList} row")
+      //println(s"appended ${line_num} --> ${crates.toList} row")
       line_num = line_num + 1
     }
 
-    val delegator = system.actorOf(Delegator.props(rows))
-    delegator ! 1
-    println(s"Last Row is ${rows.last}")
+
+    //Parse instructions
+    fileName = "./D5/d5.test.instructions"
+    println("READING CRATES")
+
+    //reset the source....
+    bufferedSource = scala.io.Source.fromFile(fileName)
+
+    val commands = ListBuffer[Command]()
+    //Foreach line
+    line_num = 1;
+    for (line <- bufferedSource.getLines()) {
+      //println(s"${line_num} --> ${line} row")
+      commands += create_command(line_num,line)
+      line_num = line_num + 1
+    }
+
+    val delegator = system.actorOf(Delegator.props(rows,commands))
 
 
     bufferedSource.close()
