@@ -8,40 +8,66 @@ object Delegator{
   def props(rows:ListBuffer[ListBuffer[Char]]) = Props(new Delegator((rows)))
 }
 
+object Crate_Stack{
+  def props(stack:ListBuffer[Char]) = Props(new Crate_Stack(stack))
+}
+
 class Delegator(rows:ListBuffer[ListBuffer[Char]]) extends Actor{
   var locks = new Array[Boolean](0)
-  var cols = new Array[ActorRef](0)
+  var stacks= new Array[ActorRef](0)
   override def receive: Receive = {
     case i:Int => print(s"received ${i}")
   }
   override def preStart(): Unit = {
     super.preStart()
-    locks = new Array[Boolean](rows.last.length)
+    val num_stacks = rows.last.length
+    locks = new Array[Boolean](num_stacks)
+    stacks = new Array[ActorRef](num_stacks)
     init_cols();
   }
-
   def init_cols() = {
     try {
 
       //First, lets make things into arrays to get a fill on it
-      val as_arrays = rows.map(row => {
+      val transposed = rows.map(row => {
         //Intialize a row-sized array of blanks
         val row_arr = Array.fill(locks.length)(' ')
 
         //For each index of the array, fill what we can
         for (i <- row.indices) {
-          println(s"Adding ${row(i)} at ${i}")
           row_arr(i) = row(i)
         }
         row_arr.toList
+      }).transpose
+
+      //TODO: Send the transposed lists to col actors
+      transposed.foreach(row => {
+        val send_row = row.reverse
+        val stack_id= send_row.head.toString.toInt
+        val stack = context.actorOf(Crate_Stack.props(row.reverse))
+        stacks(stack_id) = stack
       })
-      println(s"Created_Arrays ${as_arrays}")
-      println(s"Transposed is: ${as_arrays.transpose}")
+
+
     } catch {
       case e: Exception => println(s"EXCEPTION: ${e}")
     }
   }
 }
+
+class Crate_Stack(stack:ListBuffer[Char]) extends Actor{
+  override def receive: Receive = {
+    case i:Int => println(i)
+  }
+
+  override def preStart(): Unit = {
+    super.preStart()
+    val id = stack.head
+    stack.remove(0)
+    println(s"ID: ${id}, remainder: ${stack} ")
+  }
+}
+
 
 object d5{
 
