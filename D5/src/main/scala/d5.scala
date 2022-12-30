@@ -9,6 +9,8 @@ case class Move_Order(crates:List[Char],delegator:ActorRef)
 
 case class Show_Stack()
 
+case class Tail_Report(id:Int,tail:Char)
+
 object Delegator{
   def props(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int,Int,Int,Int)]) =
     Props(new Delegator(rows,command_tuples))
@@ -21,6 +23,8 @@ object Crate_Stack{
 class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int,Int,Int,Int)]) extends Actor{
   private var locks = new Array[Boolean](0)
   private var stacks= new Array[ActorRef](0)
+  private var tails= new Array[Char](0)
+  private var tail_count = (rows.length -1)
   private var retry_queue = new mutable.PriorityQueue[Command]()(Ordering.by(compare))
   private var command_queue = new mutable.PriorityQueue[Command]()(Ordering.by(compare))
 
@@ -43,8 +47,19 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
     locks(c.dest - 1) = true
   }
 
+  def r_TailReport(tr: Tail_Report): Unit = {
+    tail_count = tail_count - 1
+    tails(tr.id -1) = tr.tail
+    println(s"RECEIVED TAIL COUNT: ${tr}: ${tail_count}")
+    if(tail_count == 0){
+      println(s"TAILS: ${tails.toList}")
+      self ! PoisonPill
+    }
+  }
+
   override def receive: Receive = {
     case ack:Unlock => unlock(ack)
+    case tail:Tail_Report => r_TailReport(tail)
     case "DISTRIBUTE" => distribute_commands()
   }
   override def preStart(): Unit = {
@@ -54,6 +69,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
     //setup arrays
     locks = new Array[Boolean](num_stacks)
     stacks = new Array[ActorRef](num_stacks)
+    tails = new Array[Char](num_stacks)
     command_tuples.foreach(command => {
       command_queue.enqueue(Command(command._1,command._2,command._3,command._4))
     })
@@ -114,7 +130,6 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
       } else {
         println("DONE DELGATING")
         stacks.foreach(stack => stack ! Show_Stack())
-        self ! PoisonPill
         return
       }
 
@@ -179,7 +194,8 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
 
   def r_ShowStack(): Unit = {
     println(s"${id}->tail:${crates.last} ${crates}")
-    //println(s"HI")
+    sender() ! Tail_Report(id,crates.last)
+    self ! PoisonPill
   }
 
   override def receive: Receive = {
