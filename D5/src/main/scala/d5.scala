@@ -5,6 +5,7 @@ import scala.collection.mutable.ListBuffer
 
 case class Command(priority:Int,quantity:Int,source:Int,dest:Int)
 
+case class Unlock(id:Int)
 case class Move_Order(crates:List[Char],delegator:ActorRef)
 
 object Delegator{
@@ -13,7 +14,7 @@ object Delegator{
 }
 
 object Crate_Stack{
-  def props(stack:ListBuffer[Char]) = Props(new Crate_Stack(stack))
+  def props(stack:ListBuffer[Char],stacks:Array[ActorRef]) = Props(new Crate_Stack(stack,stacks))
 }
 
 class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int,Int,Int,Int)]) extends Actor{
@@ -30,10 +31,9 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
     is_locked
   }
 
-  private def unlock(c:Command): Unit = {
-    println(s"r_ack: unlocked ${c.source} && ${c.dest}")
-    locks(c.source - 1) = false
-    locks(c.dest - 1) = false
+  private def unlock(c:Unlock): Unit = {
+    println(s"r_ack: unlocked ${c.id}")
+    locks(c.id -1) = false
   }
 
   private def lock(c:Command): Unit = {
@@ -43,7 +43,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
   }
 
   override def receive: Receive = {
-    case ack:Command => unlock(ack)
+    case ack:Unlock => unlock(ack)
     case "DISTRIBUTE" => distribute_commands()
   }
   override def preStart(): Unit = {
@@ -91,7 +91,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
         //println(s"Initialized ${stack_id - 1} to ${locks(stack_id -1)}")
 
         //Create lock
-        val stack = context.actorOf(Crate_Stack.props(row.reverse))
+        val stack = context.actorOf(Crate_Stack.props(row.reverse,stacks))
         stacks(stack_id - 1) = stack // add to
       })
     } catch {
@@ -132,7 +132,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
 
 }
 
-class Crate_Stack(stack:ListBuffer[Char]) extends Actor{
+class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
   var id: Int = 0
   var crates = ListBuffer[Char]()
 
@@ -142,18 +142,41 @@ class Crate_Stack(stack:ListBuffer[Char]) extends Actor{
    */
   def r_Command(command: Command): Unit = {
 
+    //grab the crates
     val move_crates = crates.takeRight(command.quantity)
+
+    //REmove them
     for (i <- (crates.length-1) to (crates.length - command.quantity)){
       println(s"REMOVIG INNDEX: ${i}")
       crates.remove(i)
     }
     println(s"${id} got command ${command}, moving ${move_crates} crates is: ${crates}")
 
-    sender() ! Command(command.priority,command.quantity,command.source,command.dest)
+    //send the crates to the dest!
+    stacks(command.dest - 1) ! Move_Order(move_crates.toList,sender())
+
+    //unlock yourself
+    sender() ! Unlock(id)
+  }
+
+  /**
+   * Moves the crates ordered
+   * @param move_order
+   */
+  def r_MoveOrder(move_order: Move_Order): Unit = {
+
+    //Move the crates
+    println(s"${id} Crates were: ${crates}")
+    crates.appendAll(move_order.crates);
+    println(s"${id} Crates are now: ${crates}")
+
+    //Unlock the stack
+    move_order.delegator ! Unlock(id)
   }
 
   override def receive: Receive = {
     case c:Command => r_Command(c)
+    case mo:Move_Order => r_MoveOrder(mo)
   }
 
   override def preStart(): Unit = {
