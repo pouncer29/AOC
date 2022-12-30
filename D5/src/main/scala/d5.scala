@@ -6,28 +6,30 @@ import scala.collection.mutable.ListBuffer
 case class Command(priority:Int,quantity:Int,source:Int,dest:Int)
 
 object Delegator{
-  def props(rows:ListBuffer[ListBuffer[Char]],commands:ListBuffer[Command]) =
-    Props(new Delegator(rows,commands))
+  def props(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int,Int,Int,Int)]) =
+    Props(new Delegator(rows,command_tuples))
 }
 
 object Crate_Stack{
   def props(stack:ListBuffer[Char]) = Props(new Crate_Stack(stack))
 }
 
-class Delegator(rows:ListBuffer[ListBuffer[Char]],commands:ListBuffer[Command]) extends Actor{
+class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int,Int,Int,Int)]) extends Actor{
   private var locks = new Array[Boolean](0)
   private var stacks= new Array[ActorRef](0)
   private var retry_queue = new mutable.PriorityQueue[Command]()(Ordering.by(compare))
+  private var command_queue = new mutable.PriorityQueue[Command]()(Ordering.by(compare))
 
-  private def compare(c:Command) = c.priority
+  private def compare(c:Command) = c.priority * -1
 
   private def check_lock(c:Command):Boolean = {
-    //println(s"Checking Lock: ${locks(c.source-1)} ${locks(c.dest-1)}")
-    !(locks(c.source-1) && locks(c.dest-1))
+    val is_locked = !(locks(c.source-1) || locks(c.dest-1))
+    println(s"Checking Lock: ${locks(c.source-1)} ${locks(c.dest-1)} --> ${is_locked}")
+    is_locked
   }
 
   private def unlock(c:Command): Unit = {
-    println(s"unlocked ${c.source} && ${c.dest}")
+    println(s"r_ack: unlocked ${c.source} && ${c.dest}")
     locks(c.source - 1) = false
     locks(c.dest - 1) = false
   }
@@ -40,12 +42,20 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],commands:ListBuffer[Command]) 
 
   override def receive: Receive = {
     case ack:Command => unlock(ack)
+    case "DISTRIBUTE" => distribute_commands()
   }
   override def preStart(): Unit = {
     super.preStart()
     val num_stacks = rows.last.length
+
+    //setup arrays
     locks = new Array[Boolean](num_stacks)
     stacks = new Array[ActorRef](num_stacks)
+    command_tuples.foreach(command => {
+      command_queue.enqueue(Command(command._1,command._2,command._3,command._4))
+    })
+
+    //Setup col actors
     init_cols();
 
   }
@@ -65,7 +75,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],commands:ListBuffer[Command]) 
       }).transpose
 
       //Send the transposed lists to col actors
-      println(s"TRANSPOSED: ${transposed}")
+      //println(s"TRANSPOSED: ${transposed}")
       transposed.foreach(row => {
         val send_row = row.reverse
 
@@ -76,7 +86,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],commands:ListBuffer[Command]) 
 
         //flag lock as not_locked
         locks(stack_id - 1) = false
-        println(s"Initialized ${stack_id - 1} to ${locks(stack_id -1)}")
+        //println(s"Initialized ${stack_id - 1} to ${locks(stack_id -1)}")
 
         //Create lock
         val stack = context.actorOf(Crate_Stack.props(row.reverse))
@@ -89,32 +99,34 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],commands:ListBuffer[Command]) 
     distribute_commands()
   }
   private def distribute_commands(): Unit = {
-    println("Distributing")
-    while (commands.nonEmpty){
-
+      //println("Distributing")
       //select command
       var command:Command = null
       if(retry_queue.nonEmpty){
-        //println(s"addressing priority queue command: ${command}")
         command = retry_queue.dequeue()
+        println(s"addressing priority queue command: ${command}")
+      } else if (command_queue.nonEmpty){
+        println("Pulling from command queue")
+        command = command_queue.dequeue()
       } else {
-        //println("Pulling from command queue")
-        command = commands.head
-        commands.remove(0)
+        println("DONE DELGATING")
+        stacks.foreach(stack => stack ! PoisonPill)
+        self ! PoisonPill
+        return
       }
 
       //test command
       if(check_lock(command)){
-        //println(s"Sending ${Command}")
         lock(command)
-        stacks(command.source) ! command
+        println(s"Sending ${command}")
+        stacks(command.source -1) ! command
       } else {
-        //println(s"sending ${command} to priority queue")
+        println(s"assigning ${command} to priority queue")
         retry_queue.enqueue(command)
       }
 
+      self ! "DISTRIBUTE"
     }
-  }
 
 }
 
@@ -122,7 +134,7 @@ class Crate_Stack(stack:ListBuffer[Char]) extends Actor{
   var id: Int = 0
   def r_Command(command: Command): Unit = {
     println(s"${id} got command ${command}")
-    sender() ! command
+    sender() ! Command(command.priority,command.quantity,command.source,command.dest)
   }
 
   override def receive: Receive = {
@@ -139,10 +151,9 @@ class Crate_Stack(stack:ListBuffer[Char]) extends Actor{
 
 
 object d5{
-
-  def create_command(id:Int,command_string:String):Command = {
+  private def create_command_tuple(id:Int, command_string:String):(Int,Int,Int,Int)= {
     val  params = """\d""".r.findAllMatchIn(command_string).toList.map(i => i.toString().toInt)
-    Command(id,params(0),params(1),params(2))
+    (id,params(0),params(1),params(2))
   }
   def main(args:Array[String]): Unit = {
 
@@ -166,28 +177,28 @@ object d5{
         crates.append(line.charAt(i))
       }
       rows.append(crates)
-      println(s"appended ${line_num} --> ${crates.toList} row")
+      //println(s"appended ${line_num} --> ${crates.toList} row")
       line_num = line_num + 1
     }
 
 
     //Parse instructions
     fileName = "./D5/d5.test.instructions"
-    println("READING CRATES")
+    println("READING Instructions")
 
     //reset the source....
     bufferedSource = scala.io.Source.fromFile(fileName)
 
-    val commands = ListBuffer[Command]()
+    val commands = ListBuffer[(Int,Int,Int,Int)]()
     //Foreach line
     line_num = 1;
     for (line <- bufferedSource.getLines()) {
-      println(s"${line_num} --> ${line} row")
-      commands += create_command(line_num,line)
+      //println(s"${line_num} --> ${line} row")
+      commands += create_command_tuple(line_num,line)
       line_num = line_num + 1
     }
 
-    val delegator = system.actorOf(Delegator.props(rows,commands))
+    val delegator = system.actorOf(Delegator.props(rows,commands),"Delegator")
 
 
     bufferedSource.close()
