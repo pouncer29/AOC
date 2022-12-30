@@ -5,6 +5,8 @@ import scala.collection.mutable.ListBuffer
 
 case class Command(priority:Int,quantity:Int,source:Int,dest:Int)
 
+case class Move_Order(crates:List[Char],delegator:ActorRef)
+
 object Delegator{
   def props(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int,Int,Int,Int)]) =
     Props(new Delegator(rows,command_tuples))
@@ -132,8 +134,21 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
 
 class Crate_Stack(stack:ListBuffer[Char]) extends Actor{
   var id: Int = 0
+  var crates = ListBuffer[Char]()
+
+  /**
+   * Sources recieve commands, destinations receive crates
+    * @param command
+   */
   def r_Command(command: Command): Unit = {
-    println(s"${id} got command ${command}")
+
+    val move_crates = crates.takeRight(command.quantity)
+    for (i <- (crates.length-1) to (crates.length - command.quantity)){
+      println(s"REMOVIG INNDEX: ${i}")
+      crates.remove(i)
+    }
+    println(s"${id} got command ${command}, moving ${move_crates} crates is: ${crates}")
+
     sender() ! Command(command.priority,command.quantity,command.source,command.dest)
   }
 
@@ -144,8 +159,12 @@ class Crate_Stack(stack:ListBuffer[Char]) extends Actor{
   override def preStart(): Unit = {
     super.preStart()
     id = stack.head.toString.toInt
+    //remove the ID we just harvested
     stack.remove(0)
-    println(s"ID: ${id}, remainder: ${stack} ")
+
+    //remove any blanks
+    crates = stack.filter(c => c != ' ')
+    println(s"ID: ${id}, remainder: ${crates} ")
   }
 }
 
