@@ -4,9 +4,10 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 case class Command(priority:Int,quantity:Int,source:Int,dest:Int)
-
 case class Unlock(id:Int)
 case class Move_Order(crates:List[Char],delegator:ActorRef)
+
+case class Show_Stack()
 
 object Delegator{
   def props(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int,Int,Int,Int)]) =
@@ -27,7 +28,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
 
   private def check_lock(c:Command):Boolean = {
     val is_locked = !(locks(c.source-1) || locks(c.dest-1))
-    println(s"Checking Lock: ${locks(c.source-1)} ${locks(c.dest-1)} --> ${is_locked}")
+    //println(s"Checking Lock: ${locks(c.source-1)} ${locks(c.dest-1)} --> ${is_locked}")
     is_locked
   }
 
@@ -112,7 +113,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
         command = command_queue.dequeue()
       } else {
         println("DONE DELGATING")
-        stacks.foreach(stack => stack ! PoisonPill)
+        stacks.foreach(stack => stack ! Show_Stack())
         self ! PoisonPill
         return
       }
@@ -143,13 +144,15 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
   def r_Command(command: Command): Unit = {
 
     //grab the crates
-    val move_crates = crates.takeRight(command.quantity)
+    val move_crates = crates.takeRight(command.quantity).reverse
+    val lower_range = crates.length - command.quantity
+    val remove_count = command.quantity
+    //println(s"${id} -> REMOVING BOUNDS: ${lower_range} to ${crates.length - 1} for ${crates} on ${command}")
+
 
     //REmove them
-    for (i <- (crates.length-1) to (crates.length - command.quantity)){
-      println(s"REMOVIG INNDEX: ${i}")
-      crates.remove(i)
-    }
+    crates.remove(lower_range,remove_count)
+
     println(s"${id} got command ${command}, moving ${move_crates} crates is: ${crates}")
 
     //send the crates to the dest!
@@ -174,9 +177,15 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
     move_order.delegator ! Unlock(id)
   }
 
+  def r_ShowStack(): Unit = {
+    println(s"${id}->tail:${crates.last} ${crates}")
+    //println(s"HI")
+  }
+
   override def receive: Receive = {
     case c:Command => r_Command(c)
     case mo:Move_Order => r_MoveOrder(mo)
+    case _:Show_Stack => r_ShowStack()
   }
 
   override def preStart(): Unit = {
