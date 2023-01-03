@@ -164,7 +164,7 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
   def r_Command(command: Command): Unit = {
 
     //grab the crates
-    val move_crates = crates.takeRight(command.quantity).reverse
+    val move_crates = crates.takeRight(command.quantity)//.reverse For Part 1
     val lower_range = crates.length - command.quantity
     val remove_count = command.quantity
     println(s"${id} -> REMOVING BOUNDS: ${lower_range} to ${crates.length - 1} for ${crates} on ${command}")
