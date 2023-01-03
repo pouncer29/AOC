@@ -1,7 +1,10 @@
 import akka.actor.{Actor, ActorRef, ActorSystem, PoisonPill, Props, actorRef2Scala}
+import org.slf4j.{Logger, LoggerFactory}
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+
+
 
 case class Command(priority:Int,quantity:Int,source:Int,dest:Int)
 case class Unlock(id:Int)
@@ -21,10 +24,11 @@ object Crate_Stack{
 }
 
 class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int,Int,Int,Int)]) extends Actor{
+  val logger:Logger = LoggerFactory.getLogger(Delegator.getClass)
   private var locks = new Array[Boolean](0)
   private var stacks= new Array[ActorRef](0)
   private var tails= new Array[Char](0)
-  private var tail_count = (rows.length -1)
+  private var tail_count = (rows.length - 1)
   private var retry_queue = new mutable.PriorityQueue[Command]()(Ordering.by(compare))
   private var command_queue = new mutable.PriorityQueue[Command]()(Ordering.by(compare))
 
@@ -32,7 +36,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
 
   private def check_lock(c:Command):Boolean = {
     val is_locked = !(locks(c.source-1) || locks(c.dest-1))
-    //println(s"Checking Lock: ${locks(c.source-1)} ${locks(c.dest-1)} --> ${is_locked}")
+    println(s"Checking Lock: ${locks(c.source-1)} ${locks(c.dest-1)} --> ${is_locked}")
     is_locked
   }
 
@@ -48,16 +52,16 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
   }
 
   def r_TailReport(tr: Tail_Report): Unit = {
-    tail_count = tail_count - 1
     tails(tr.id -1) = tr.tail
     println(s"RECEIVED TAIL COUNT: ${tr}: ${tail_count}")
     if(tail_count == 0){
       println(s"TAILS: ${tails.toList}")
       self ! PoisonPill
     }
+    tail_count = tail_count - 1
   }
 
-  override def receive: Receive = {
+   def receive: Receive = {
     case ack:Unlock => unlock(ack)
     case tail:Tail_Report => r_TailReport(tail)
     case "DISTRIBUTE" => distribute_commands()
@@ -123,9 +127,9 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
       var command:Command = null
       if(retry_queue.nonEmpty){
         command = retry_queue.dequeue()
-        println(s"addressing priority queue command: ${command}")
+        //println(s"addressing priority queue command: ${command}")
       } else if (command_queue.nonEmpty){
-        println("Pulling from command queue")
+        //println("Pulling from command queue")
         command = command_queue.dequeue()
       } else {
         println("DONE DELGATING")
@@ -149,6 +153,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
 }
 
 class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
+  val logger:Logger = LoggerFactory.getLogger(classOf[Crate_Stack])
   var id: Int = 0
   var crates = ListBuffer[Char]()
 
@@ -162,7 +167,8 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
     val move_crates = crates.takeRight(command.quantity).reverse
     val lower_range = crates.length - command.quantity
     val remove_count = command.quantity
-    //println(s"${id} -> REMOVING BOUNDS: ${lower_range} to ${crates.length - 1} for ${crates} on ${command}")
+    println(s"${id} -> REMOVING BOUNDS: ${lower_range} to ${crates.length - 1} for ${crates} on ${command}")
+    //(s"${id} -> REMOVING BOUNDS: ${lower_range} to ${crates.length - 1} for ${crates} on ${command}")
 
 
     //REmove them
@@ -184,9 +190,13 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
   def r_MoveOrder(move_order: Move_Order): Unit = {
 
     //Move the crates
-    println(s"${id} Crates were: ${crates}")
-    crates.appendAll(move_order.crates);
-    println(s"${id} Crates are now: ${crates}")
+    //println(s"${id} Crates were: ${crates}")
+    try{
+      crates.appendAll(move_order.crates);
+    } catch {
+      case e:Exception => println(s"${e} - Move Order")
+    }
+    //println(s"${id} Crates are now: ${crates}")
 
     //Unlock the stack
     move_order.delegator ! Unlock(id)
@@ -212,15 +222,18 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
 
     //remove any blanks
     crates = stack.filter(c => c != ' ')
-    println(s"ID: ${id}, remainder: ${crates} ")
+    //println(s"ID: ${id}, remainder: ${crates} ")
   }
 }
 
 
 object d5{
   private def create_command_tuple(id:Int, command_string:String):(Int,Int,Int,Int)= {
-    val  params = """\d""".r.findAllMatchIn(command_string).toList.map(i => i.toString().toInt)
-    (id,params(0),params(1),params(2))
+    val params = command_string.split(" ")
+    val tuple = (id,params(1).toInt,params(3).toInt,params(5).toInt)
+    //println(s"Created ${tuple}")
+    tuple
+
   }
   def main(args:Array[String]): Unit = {
 
@@ -229,7 +242,7 @@ object d5{
 
 
     //Parse crates
-    var fileName = "./D5/d5.test.crates"
+    var fileName = "./D5/d5.crates"
     println("READING CRATES")
 
     //reset the source....
@@ -250,7 +263,7 @@ object d5{
 
 
     //Parse instructions
-    fileName = "./D5/d5.test.instructions"
+    fileName = "./D5/d5.instructions"
     println("READING Instructions")
 
     //reset the source....

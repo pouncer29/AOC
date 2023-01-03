@@ -6,3 +6,6 @@ lazy val root = (project in file("."))
   .settings(
     name := "D5"
   )
+
+val libraryDependencies = Seq("org.slf4j" % "slf4j-api" % "2.0.5",
+"org.slf4j" % "slf4j-simple" % "2.0.5")
