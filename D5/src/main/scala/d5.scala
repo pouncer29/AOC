@@ -149,7 +149,7 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
     init_cols();
 
   }
-  def init_cols() = {
+  private def init_cols() = {
     try {
 
       //First, lets make things into arrays to get a fill on it
@@ -157,19 +157,19 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
         //Intialize a row-sized array of blanks
         val row_arr = Array.fill(locks.length)(' ')
 
-        //For each index of the array, fill what we can
+        //For each index of the array, fill what we can in terms of crates
         for (i <- row.indices) {
           row_arr(i) = row(i)
         }
         row_arr.toList
       }).transpose
 
-      //Send the transposed lists to col actors
+      //Send the transposed lists to col actors this is their stack now.
       //println(s"TRANSPOSED: ${transposed}")
       transposed.foreach(row => {
         val send_row = row.reverse
 
-        // grab id
+        // grab id (First item of the list is always the ID)
         //println(s"processing ${send_row.head.toString} for ${send_row}")
         val stack_id = send_row.head.toString.toInt
         //println(s"${stack_id} processed")
@@ -178,9 +178,10 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
         locks(stack_id - 1) = false
         //println(s"Initialized ${stack_id - 1} to ${locks(stack_id -1)}")
 
-        //Create lock
+        //Create stack actor
         val stack = context.actorOf(Crate_Stack.props(row.reverse,stacks))
-        stacks(stack_id - 1) = stack // add to
+
+        stacks(stack_id - 1) = stack // add to list of known stacks
       })
     } catch {
       case e: Exception => println(s"EXCEPTION: ${e}")
@@ -192,28 +193,37 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
       //println("Distributing")
       //select command
       var command:Command = null
+
       if(retry_queue.nonEmpty){
+        //If there are items in the retry queue, start there
         command = retry_queue.dequeue()
         //println(s"addressing priority queue command: ${command}")
       } else if (command_queue.nonEmpty){
+        //Otherwise pull the next command in the queue
         //println("Pulling from command queue")
         command = command_queue.dequeue()
       } else {
-        println("DONE DELGATING")
+        //Otherwise if both stacks are empty, then we are out of
+        //things to do! Tell the stacks to show what they've got!
+        println("DONE DELEGATING")
         stacks.foreach(stack => stack ! Show_Stack())
         return
       }
 
-      //test command
+      //Make sure we can send the dequeued command
       if(check_lock(command)){
         lock(command)
         println(s"Sending ${command}")
+
+        //Now that it is locked, other commands cannot interrupt, send it!
         stacks(command.source -1) ! command
       } else {
+        //If not, put it into the retry queue
         println(s"assigning ${command} to priority queue")
         retry_queue.enqueue(command)
       }
 
+      //And with that command distributed, tell ourselves to do it all again
       self ! "DISTRIBUTE"
     }
 
