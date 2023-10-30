@@ -5,13 +5,40 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 
-
+/**
+ * Represents a command to move crates from a source to a destination
+ * @param priority the priority that the command be carried out, 0 being greatest priority
+ * @param quantity the #of crates to move
+ * @param source the source stack of the crates to move
+ * @param dest the destination stack that the crates should be sent to
+ */
 case class Command(priority:Int,quantity:Int,source:Int,dest:Int)
+
+/**
+ * A message sent to the delegator to signify that stack with given id can
+ * be unlocked
+ * @param id the ID of the stack to unlock
+ */
 case class Unlock(id:Int)
+
+/**
+ * A message representing an order to move crates to a dest
+ * @param crates the crates that the receiver is receiving
+ * @param delegator a reference to the delegator such that we can unlock ourselves
+ */
 case class Move_Order(crates:List[Char],delegator:ActorRef)
 
+/**
+ * A message sent by the delegator when it is time to trigger
+ * stack reporting
+ */
 case class Show_Stack()
 
+/**
+ * A message sent when a stack has finished all of its tasks
+ * @param id - the ID of the stack reporting its tail
+ * @param tail - the last item on the crate stack
+ */
 case class Tail_Report(id:Int,tail:Char)
 
 object Delegator{
@@ -229,18 +256,31 @@ class Delegator(rows:ListBuffer[ListBuffer[Char]],command_tuples:ListBuffer[(Int
 
 }
 
+/**
+ * A crate stack, or "crane" if you will, is a stack of crates that can receive
+ * commands to either accept new crates, or send existing crates to other stacks
+ * @param stack a list of chars that reperesents the crates I hold
+ * @param stacks a lookup of other stacks that I can send/receive crates to/from
+ */
 class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
   val logger:Logger = LoggerFactory.getLogger(classOf[Crate_Stack])
+  /**
+   * The ID of this stack [1-9]
+   */
   var id: Int = 0
+
+  /**
+   * The crates that make up this stack
+   */
   var crates = ListBuffer[Char]()
 
   /**
-   * Sources recieve commands, destinations receive crates
-    * @param command
+   * Sources receive commands, destinations receive crates
+    * @param command a command to send N crates to  destination X
    */
   def r_Command(command: Command): Unit = {
 
-    //grab the crates
+    //grab the crates from the top
     val move_crates = crates.takeRight(command.quantity)//.reverse For Part 1
     val lower_range = crates.length - command.quantity
     val remove_count = command.quantity
@@ -248,7 +288,7 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
     //(s"${id} -> REMOVING BOUNDS: ${lower_range} to ${crates.length - 1} for ${crates} on ${command}")
 
 
-    //REmove them
+    //Remove them
     crates.remove(lower_range,remove_count)
 
     println(s"${id} got command ${command}, moving ${move_crates} crates is: ${crates}")
@@ -262,7 +302,7 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
 
   /**
    * Moves the crates ordered
-   * @param move_order
+   * @param move_order a command to receive crates from a source
    */
   def r_MoveOrder(move_order: Move_Order): Unit = {
 
@@ -275,22 +315,34 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
     }
     //println(s"${id} Crates are now: ${crates}")
 
-    //Unlock the stack
+    //Unlock the stack (us)
     move_order.delegator ! Unlock(id)
   }
 
+  /**
+   * If we have been asked to show our stack, then all commands have been
+   * distributed, we need to report our tail to the delegator and kill
+   * ourselves
+   */
   def r_ShowStack(): Unit = {
     println(s"${id}->tail:${crates.last} ${crates}")
     sender() ! Tail_Report(id,crates.last)
     self ! PoisonPill
   }
 
+  /**
+   * Handles the coordination of received messages
+   * @return
+   */
   override def receive: Receive = {
     case c:Command => r_Command(c)
     case mo:Move_Order => r_MoveOrder(mo)
     case _:Show_Stack => r_ShowStack()
   }
 
+  /**
+   * Initializes the ID for the stack and formats its crates
+   */
   override def preStart(): Unit = {
     super.preStart()
     id = stack.head.toString.toInt
@@ -302,8 +354,6 @@ class Crate_Stack(stack:ListBuffer[Char],stacks:Array[ActorRef]) extends Actor{
     //println(s"ID: ${id}, remainder: ${crates} ")
   }
 }
-
-
 object d5{
   /**
    * Creates a command tuple and assigns it a priority
